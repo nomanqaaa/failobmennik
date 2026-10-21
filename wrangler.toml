@@ -1,0 +1,16 @@
+name = "public-file-share"
+main = "worker.js"
+compatibility_date = "2026-10-01"
+
+# После создания KV namespace замените REPLACE_WITH_NAMESPACE_ID на ID из вывода команды.
+[[kv_namespaces]]
+binding = "FILES"
+id = "e43e0617f91a4ec39cdd1a68d292ae34"
+
+# Сайт и API публикуются одним Worker, поэтому отдельный хостинг Pages не нужен.
+[assets]
+directory = "./public"
+binding = "ASSETS"
+
+[observability]
+enabled = true
