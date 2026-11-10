@@ -1,0 +1,255 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Защищённый файлообменник</title>
+<meta name="description" content="Файл шифруется в браузере до загрузки. Одноразовая ссылка, пароль у получателя, автоудаление. Cloudflare Workers + KV.">
+<style>
+:root{
+  --bg:#f6f7fb;--surface:#fff;--text:#14171f;--muted:#5d6676;--border:#e1e5ee;
+  --accent:#3b5bfd;--accent-2:#7a4dff;--accent-ink:#fff;--good:#16803c;--code:#0f1220;--code-text:#d7dcff;
+  --shadow:0 10px 40px rgba(30,40,90,.10);
+}
+@media(prefers-color-scheme:dark){:root:not([data-theme=light]){
+  --bg:#0d0f15;--surface:#161923;--text:#eef0f6;--muted:#a1a8b6;--border:#2a2f3c;
+  --accent:#8394ff;--accent-2:#a98bff;--accent-ink:#0d0f15;--good:#68d391;--code:#090b11;--code-text:#cfd5ff;
+  --shadow:0 10px 40px rgba(0,0,0,.4);}}
+:root[data-theme=dark]{
+  --bg:#0d0f15;--surface:#161923;--text:#eef0f6;--muted:#a1a8b6;--border:#2a2f3c;
+  --accent:#8394ff;--accent-2:#a98bff;--accent-ink:#0d0f15;--good:#68d391;--code:#090b11;--code-text:#cfd5ff;
+  --shadow:0 10px 40px rgba(0,0,0,.4);}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--text);font:16px/1.6 system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif}
+a{color:inherit}
+.wrap{max-width:1080px;margin:0 auto;padding:0 20px}
+header{position:sticky;top:0;z-index:10;backdrop-filter:blur(12px);background:color-mix(in srgb,var(--bg) 80%,transparent);border-bottom:1px solid var(--border)}
+.nav{display:flex;align-items:center;gap:20px;height:60px}
+.logo{font-weight:750;text-decoration:none;display:flex;align-items:center;gap:8px}
+.nav nav{margin-left:auto;display:flex;gap:20px;font-size:14px}
+.nav nav a{text-decoration:none;color:var(--muted)}
+.nav nav a:hover{color:var(--text)}
+.theme{border:1px solid var(--border);background:var(--surface);color:var(--text);border-radius:8px;width:36px;height:36px;cursor:pointer;font-size:16px}
+.btn{display:inline-flex;align-items:center;gap:8px;padding:13px 22px;border-radius:11px;font-weight:650;text-decoration:none;border:1px solid transparent;transition:transform .15s}
+.btn:hover{transform:translateY(-2px)}
+.btn.primary{background:linear-gradient(135deg,var(--accent),var(--accent-2));color:#fff}
+.btn.ghost{border-color:var(--border);background:var(--surface)}
+.hero{padding:84px 0 56px;display:grid;grid-template-columns:1.1fr .9fr;gap:48px;align-items:center}
+.pill{display:inline-block;font-size:13px;color:var(--accent);border:1px solid color-mix(in srgb,var(--accent) 40%,transparent);background:color-mix(in srgb,var(--accent) 10%,transparent);padding:4px 12px;border-radius:99px;margin-bottom:18px}
+h1{font-size:clamp(34px,5.2vw,56px);line-height:1.08;margin:0 0 18px;letter-spacing:-.02em}
+h1 span{background:linear-gradient(135deg,var(--accent),var(--accent-2));-webkit-background-clip:text;background-clip:text;color:transparent}
+.lead{font-size:18px;color:var(--muted);max-width:520px;margin:0 0 28px}
+.cta{display:flex;gap:12px;flex-wrap:wrap}
+.stats{display:flex;gap:28px;margin-top:34px;flex-wrap:wrap}
+.stats b{display:block;font-size:22px}
+.stats small{color:var(--muted)}
+/* mock */
+.mock{background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:22px;box-shadow:var(--shadow)}
+.mock h4{margin:0 0 14px;font-size:15px}
+.field{border:1px solid var(--border);border-radius:10px;padding:11px 13px;margin:8px 0;font-size:14px;color:var(--muted);background:var(--bg);display:flex;justify-content:space-between;gap:10px}
+.field b{color:var(--text);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bar{height:8px;border-radius:9px;background:var(--border);overflow:hidden;margin:14px 0 6px}
+.bar i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--accent),var(--accent-2));animation:fill 3.2s ease-in-out infinite}
+@keyframes fill{0%{width:0}70%,100%{width:100%}}
+.status{font-size:13px;color:var(--good)}
+.cipher{font:12px/1.5 ui-monospace,Consolas,monospace;color:var(--muted);word-break:break-all;margin-top:10px}
+section{padding:64px 0}
+.eyebrow{color:var(--accent);font-weight:650;font-size:13px;text-transform:uppercase;letter-spacing:.08em}
+h2{font-size:clamp(26px,3.6vw,36px);margin:6px 0 12px;letter-spacing:-.01em}
+.sub{color:var(--muted);max-width:620px;margin:0 0 36px}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:22px}
+.card .ic{font-size:26px;margin-bottom:10px}
+.card h3{margin:0 0 6px;font-size:17px}
+.card p{margin:0;color:var(--muted);font-size:15px}
+.steps{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;counter-reset:s}
+.step{position:relative;background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:22px 20px;counter-increment:s}
+.step::before{content:counter(s);display:grid;place-items:center;width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--accent-2));color:#fff;font-weight:700;margin-bottom:12px}
+.step h3{margin:0 0 6px;font-size:16px}
+.step p{margin:0;color:var(--muted);font-size:14px}
+.split{display:grid;grid-template-columns:1fr 1fr;gap:24px}
+table{width:100%;border-collapse:collapse;font-size:15px}
+td,th{text-align:left;padding:11px 0;border-bottom:1px solid var(--border);vertical-align:top}
+th{color:var(--muted);font-weight:500;width:46%;padding-right:12px}
+.honest{background:color-mix(in srgb,var(--accent) 8%,var(--surface));border:1px solid color-mix(in srgb,var(--accent) 30%,var(--border))}
+.honest ul{margin:8px 0 0;padding-left:20px;color:var(--muted);font-size:15px}
+.honest li{margin:5px 0}
+pre{background:var(--code);color:var(--code-text);border-radius:14px;padding:18px 20px;overflow:auto;font:13.5px/1.7 ui-monospace,Consolas,monospace;margin:0}
+pre .c{color:#7d86b8}
+.tags{display:flex;flex-wrap:wrap;gap:8px}
+.tags span{border:1px solid var(--border);background:var(--surface);border-radius:99px;padding:6px 14px;font-size:14px}
+.final{text-align:center;background:linear-gradient(135deg,var(--accent),var(--accent-2));color:#fff;border-radius:24px;padding:54px 24px}
+.final h2{margin:0 0 10px}
+.final p{margin:0 auto 24px;opacity:.9;max-width:480px}
+.final .btn{background:#fff;color:#2a3bb8}
+footer{padding:36px 0 50px;color:var(--muted);font-size:14px;text-align:center}
+footer a{color:var(--accent)}
+@media(max-width:860px){
+  .hero{grid-template-columns:1fr;padding-top:48px}
+  .grid,.steps,.split{grid-template-columns:1fr}
+  .nav nav a:not(.keep){display:none}
+}
+@media(prefers-reduced-motion:reduce){.bar i{animation:none;width:100%}.btn:hover{transform:none}html{scroll-behavior:auto}}
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap nav">
+    <a class="logo" href="#top">🔒 Файлообменник</a>
+    <nav>
+      <a href="#features">Возможности</a>
+      <a href="#how">Как работает</a>
+      <a href="#security">Безопасность</a>
+      <a href="#deploy">Развёртывание</a>
+      <a class="keep" href="https://github.com/nomanqaaa/failobmennik" target="_blank" rel="noopener">GitHub</a>
+    </nav>
+    <button class="theme" id="theme" aria-label="Сменить тему">🌓</button>
+  </div>
+</header>
+
+<main id="top">
+  <div class="wrap hero">
+    <div>
+      <span class="pill">Open source · Cloudflare Workers</span>
+      <h1>Отправьте файл так, чтобы <span>прочитать его мог только адресат</span></h1>
+      <p class="lead">Файл шифруется прямо в браузере ещё до загрузки. Ссылка одноразовая, пароль знает только получатель, а через выбранный срок всё удаляется автоматически.</p>
+      <div class="cta">
+        <a class="btn primary" href="https://public-file-share.freshplay905.workers.dev/" target="_blank" rel="noopener">Открыть сервис →</a>
+        <a class="btn ghost" href="https://github.com/nomanqaaa/failobmennik" target="_blank" rel="noopener">Исходный код</a>
+      </div>
+      <div class="stats">
+        <div><b>AES-256</b><small>шифрование в браузере</small></div>
+        <div><b>18 МБ</b><small>лимит файла</small></div>
+        <div><b>1 ч – 7 дн</b><small>срок жизни ссылки</small></div>
+      </div>
+    </div>
+
+    <div class="mock" aria-hidden="true">
+      <h4>🔒 Защищённый файлообменник</h4>
+      <div class="field"><span>Файл</span><b>договор_финал.pdf · 2,4 МБ</b></div>
+      <div class="field"><span>Пароль</span><b>••••••••••••</b></div>
+      <div class="field"><span>Срок</span><b>1 день</b></div>
+      <div class="bar"><i></i></div>
+      <div class="status">✓ Зашифровано в браузере</div>
+      <div class="cipher">ciphertext: 7Vq3xK0pLmZ9aT2f…Rw8nYc4Hd1bQ==</div>
+    </div>
+  </div>
+
+  <section id="features">
+    <div class="wrap">
+      <div class="eyebrow">Возможности</div>
+      <h2>Просто для пользователя, строго внутри</h2>
+      <p class="sub">Никаких аккаунтов и приложений — открыл страницу, выбрал файл, отправил ссылку.</p>
+      <div class="grid">
+        <div class="card"><div class="ic">🔐</div><h3>Клиентское шифрование</h3><p>AES-GCM через Web Crypto API. Пароль и ключ не покидают браузер.</p></div>
+        <div class="card"><div class="ic">1️⃣</div><h3>Одноразовая ссылка</h3><p>После успешного скачивания запись удаляется из хранилища.</p></div>
+        <div class="card"><div class="ic">⏳</div><h3>Автоудаление</h3><p>Срок 1 час, 1 день или 7 дней: TTL в Workers KV стирает данные сам.</p></div>
+        <div class="card"><div class="ic">🚫</div><h3>Без регистрации</h3><p>Не нужен аккаунт и установка — работает в любом современном браузере.</p></div>
+        <div class="card"><div class="ic">⚡</div><h3>На периферии сети</h3><p>Cloudflare Workers обрабатывают запросы рядом с пользователем.</p></div>
+        <div class="card"><div class="ic">🛠️</div><h3>Свой экземпляр</h3><p>Разверните в собственном аккаунте Cloudflare одной командой.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="how">
+    <div class="wrap">
+      <div class="eyebrow">Как это работает</div>
+      <h2>Четыре шага от файла до скачивания</h2>
+      <p class="sub">Сервер видит только зашифрованные данные.</p>
+      <div class="steps">
+        <div class="step"><h3>Выбор файла</h3><p>Отправитель выбирает файл, придумывает пароль (от 10 символов) и срок.</p></div>
+        <div class="step"><h3>Шифрование</h3><p>Из пароля через PBKDF2 получается ключ, файл шифруется AES-GCM в браузере.</p></div>
+        <div class="step"><h3>Ссылка</h3><p>Worker кладёт шифртекст в KV и возвращает уникальную ссылку.</p></div>
+        <div class="step"><h3>Скачивание</h3><p>Получатель вводит пароль, браузер расшифровывает файл, ссылка сгорает.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="security">
+    <div class="wrap">
+      <div class="eyebrow">Безопасность</div>
+      <h2>Что защищено, а что нет</h2>
+      <p class="sub">Честно о модели защиты, чтобы вы понимали, что именно получаете.</p>
+      <div class="split">
+        <div class="card">
+          <table>
+            <tr><th>Шифр</th><td>AES-GCM, ключ 256 бит</td></tr>
+            <tr><th>Вывод ключа</th><td>PBKDF2, SHA-256, 250 000 итераций</td></tr>
+            <tr><th>Соль / IV</th><td>случайные, 16 и 12 байт на каждый файл</td></tr>
+            <tr><th>Токен ссылки</th><td>48 hex-символов (192 бита случайности)</td></tr>
+            <tr><th>Хранилище</th><td>Workers KV с TTL</td></tr>
+          </table>
+        </div>
+        <div class="card honest">
+          <h3 style="margin:0">Важно знать</h3>
+          <ul>
+            <li>Пароль передавайте <b>отдельно</b> от ссылки и по другому каналу.</li>
+            <li>Забытый пароль восстановить нельзя — файл не расшифровать.</li>
+            <li>Имя файла, тип и размер хранятся на сервере в открытом виде.</li>
+            <li>Стойкость зависит от длины пароля: берите длинную фразу.</li>
+            <li>Это прототип: он не заменяет полноценный аудит безопасности.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="wrap">
+      <div class="eyebrow">Технологии</div>
+      <h2>Минимальный стек</h2>
+      <p class="sub">Один Worker отдаёт и сайт, и API, отдельный хостинг не нужен.</p>
+      <div class="tags">
+        <span>Cloudflare Workers</span><span>Workers KV</span><span>Web Crypto API</span>
+        <span>AES-GCM</span><span>PBKDF2</span><span>HTML / CSS / JS</span><span>Wrangler</span>
+      </div>
+    </div>
+  </section>
+
+  <section id="deploy">
+    <div class="wrap">
+      <div class="eyebrow">Развёртывание</div>
+      <h2>Запустите свой файлообменник</h2>
+      <p class="sub">Понадобятся Node.js и бесплатный аккаунт Cloudflare.</p>
+<pre><span class="c"># 1. Клонируйте репозиторий</span>
+git clone https://github.com/nomanqaaa/failobmennik
+cd failobmennik
+
+<span class="c"># 2. Создайте хранилище и впишите его id в wrangler.toml</span>
+npx wrangler kv namespace create FILES
+
+<span class="c"># 3. Опубликуйте</span>
+npx wrangler deploy</pre>
+    </div>
+  </section>
+
+  <section>
+    <div class="wrap">
+      <div class="final">
+        <h2>Попробуйте прямо сейчас</h2>
+        <p>Загрузите файл, получите ссылку и убедитесь, что всё работает.</p>
+        <a class="btn" href="https://public-file-share.freshplay905.workers.dev/" target="_blank" rel="noopener">Открыть демо →</a>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">Защищённый файлообменник · <a href="https://github.com/nomanqaaa/failobmennik" target="_blank" rel="noopener">GitHub</a></div>
+</footer>
+
+<script>
+(function(){
+  var b=document.getElementById('theme'),r=document.documentElement;
+  try{var s=localStorage.getItem('theme');if(s)r.setAttribute('data-theme',s)}catch(e){}
+  b.addEventListener('click',function(){
+    var dark=r.getAttribute('data-theme')?r.getAttribute('data-theme')==='dark':matchMedia('(prefers-color-scheme:dark)').matches;
+    var n=dark?'light':'dark';r.setAttribute('data-theme',n);
+    try{localStorage.setItem('theme',n)}catch(e){}
+  });
+})();
+</script>
+</body>
+</html>
